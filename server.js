@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const supabase = require("./supabaseClient");
+const requireAuth = require("./middleware/requireAuth");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,25 +51,26 @@ app.get("/public/info", (req, res) => {
   res.status(200).json({ message: "Welcome stranger! This info is public." });
 });
 
-app.get("/protected/profile", async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
-  if (!token) {
-    return res.status(401).json({ error: "Access token required" });
-  }
-
-  const { data, error } = await supabase.auth.getUser(token);
-
-  if (error || !data.user) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
-
+app.get("/protected/profile", requireAuth, (req, res) => {
   res.status(200).json({
-    id: data.user.id,
-    email: data.user.email,
-    created_at: data.user.created_at,
+    id: req.user.id,
+    email: req.user.email,
+    created_at: req.user.created_at,
   });
+});
+
+// ---------- Stage 4: middleware protection & logout ----------
+app.get("/protected/dashboard", requireAuth, (req, res) => {
+  res.status(200).json({ message: `Welcome to your dashboard, ${req.user.email}.` });
+});
+
+app.post("/auth/logout", requireAuth, async (req, res) => {
+  // supabase-js v2's signOut() operates on the session held by the client
+  // instance, not an arbitrary bearer token passed in from a stateless
+  // server — see the README for why, and what fully revoking a specific
+  // token would require (the service_role key's admin API).
+  await supabase.auth.signOut();
+  res.status(204).send();
 });
 
 app.listen(PORT, () => {
