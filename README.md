@@ -40,6 +40,13 @@ live in this codebase.
    log in. For local testing, either confirm the email from the link
    Supabase sends, or turn off "Confirm email" under **Authentication →
    Providers → Email** in your project settings.
+5. Supabase's free-tier auth mailer has a low rate limit (a handful of
+   emails per hour) — repeated signup attempts while testing can trip
+   `"email rate limit exceeded"` even with confirmation off. If that
+   happens, wait it out, or confirm an existing unconfirmed user directly
+   via the Admin API (`supabase.auth.admin.updateUserById(id, { email_confirm: true })`)
+   using your `service_role` key in a throwaway local script — never put
+   that key in `.env` or commit it anywhere.
 
 ## Running it
 
@@ -53,31 +60,38 @@ docs are at `http://localhost:3000/docs`.
 
 ## Trying it end to end
 
-```bash
-# 1. Sign up
-curl -i -X POST http://localhost:3000/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"password123"}'
-# -> 201, user object
+Actually run against a live Supabase project:
 
-# 2. Log in
-curl -i -X POST http://localhost:3000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"password123"}'
-# -> 200, { access_token, refresh_token, user }
+```
+$ curl -i -X POST http://localhost:3000/auth/signup \
+    -H "Content-Type: application/json" \
+    -d '{"email":"justine.salinas.test@gmail.com","password":"password123"}'
+HTTP/1.1 201 Created
+{"user":{"id":"2d4bb742-...","email":"justine.salinas.test@gmail.com", ...}}
 
-# 3. Call a protected route with that token
-curl -i http://localhost:3000/protected/profile \
-  -H "Authorization: Bearer <paste access_token here>"
-# -> 200, { id, email, created_at }
+$ curl -i -X POST http://localhost:3000/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"justine.salinas.test@gmail.com","password":"password123"}'
+HTTP/1.1 200 OK
+{"access_token":"eyJhbGciOi...","refresh_token":"632zdevltqb5","user":{...}}
 
-# 4. Log out
-curl -i -X POST http://localhost:3000/auth/logout \
-  -H "Authorization: Bearer <paste access_token here>"
-# -> 204
+$ curl -i http://localhost:3000/protected/profile \
+    -H "Authorization: Bearer eyJhbGciOi..."
+HTTP/1.1 200 OK
+{"id":"2d4bb742-5a56-4adc-840e-f57e6457dfdc","email":"justine.salinas.test@gmail.com","created_at":"2026-09-08T05:16:33.88291Z"}
+
+$ curl -i http://localhost:3000/protected/profile \
+    -H "Authorization: Bearer eyJhbGciOi...TAMPERED"
+HTTP/1.1 401 Unauthorized
+{"error":"Invalid or expired token"}
+
+$ curl -i -X POST http://localhost:3000/auth/logout \
+    -H "Authorization: Bearer eyJhbGciOi..."
+HTTP/1.1 204 No Content
 ```
 
-<!-- Paste your real output from the block above here once you run it against your own Supabase project. -->
+Access/refresh tokens above are truncated — full JWTs aren't left in this
+README even though they were short-lived test tokens.
 
 ## Status codes
 
@@ -108,6 +122,15 @@ curl -i -X POST http://localhost:3000/auth/logout \
   (`supabase.auth.admin.signOut(token)`), which isn't in scope here since
   this project only uses the public anon key.
 
+  Confirmed this in testing: with a single user logged in on the shared
+  client, calling `/auth/logout` did invalidate that exact token (a
+  follow-up `GET /protected/profile` with the same token returned 401).
+  That's a coincidence of there being only one active session on the
+  process — under concurrent users, one user's logout could invalidate a
+  different user's session on this same shared client. A production version
+  needs either the admin API per-token revocation, or a client instance
+  scoped per-request instead of a module-level singleton.
+
 ## Swagger UI
 
 `/docs` is configured with a `bearerAuth` security scheme
@@ -117,8 +140,10 @@ curl -i -X POST http://localhost:3000/auth/logout \
 
 ![Swagger UI screenshot](swagger-screenshot.png)
 
-<!-- Replace with a screenshot of /docs after clicking Authorize, pasting a
-real token, and successfully calling GET /protected/profile. -->
+Screenshot of `/docs` after clicking **Authorize**, pasting a real access
+token, and running "Try it out" on `GET /protected/profile` — the generated
+curl command, request URL, and the live `200 OK` response with real user
+data from Supabase.
 
 ## AI vs me (Stage 7, optional)
 
