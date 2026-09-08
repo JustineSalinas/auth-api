@@ -45,6 +45,24 @@ app.post("/auth/login", async (req, res) => {
   });
 });
 
+// ---------- Stage 2: public & protected gates ----------
+app.get("/public/info", (req, res) => {
+  res.status(200).json({ message: "Welcome stranger! This info is public." });
+});
+
+app.get("/protected/profile", (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ error: "Access token required" });
+  }
+
+  // Stage 3 will verify this token with Supabase; for now, just requiring
+  // a well-formed header is the checkpoint.
+  res.status(200).json({ message: "token present, not yet verified" });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running and connected to Supabase (port ${PORT})`);
 });
