@@ -1,6 +1,8 @@
 require("dotenv").config();
 
 const express = require("express");
+const swaggerUi = require("swagger-ui-express");
+const openapiSpec = require("./openapi.json");
 const supabase = require("./supabaseClient");
 const requireAuth = require("./middleware/requireAuth");
 
@@ -73,6 +75,10 @@ app.post("/auth/logout", requireAuth, async (req, res) => {
   res.status(204).send();
 });
 
+// ---------- Stage 5: Swagger UI ----------
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
+
 app.listen(PORT, () => {
   console.log(`Server running and connected to Supabase (port ${PORT})`);
+  console.log(`Swagger docs at http://localhost:${PORT}/docs`);
 });
