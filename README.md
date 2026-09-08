@@ -147,7 +147,58 @@ data from Supabase.
 
 ## AI vs me (Stage 7, optional)
 
-<!-- Fill in after running the bonus stage: prompt an AI assistant from
-memory to build the same API in a separate folder, then compare how it
-handled Bearer-prefix parsing, invalid-token handling, and what your
-prompt left underspecified. -->
+I wrote a prompt from memory (see [`auth-api-ai-version/PROMPT.md`](https://github.com/JustineSalinas/auth-api-ai-version/blob/main/PROMPT.md)
+— same repo structure, kept as a separate project) specifying the
+frameworks, routes, status codes, middleware requirement, and Swagger, then
+had a fresh AI session build it with no access to this codebase. Tested
+the result against the same live Supabase project so it's a fair
+comparison, not a guess.
+
+**Bearer-prefix parsing — it got this mostly right, but not fully.** The
+AI's middleware does `authHeader.split(" ")[1]` to grab the token, which
+correctly extracts it from a well-formed `Bearer <token>` header and
+correctly returns 401 when the header is missing entirely. But it never
+checks that the first word is literally `"Bearer"`. I tested this
+concretely: sending `Authorization: Basic <a real, valid access token>`
+returned **200 with the real profile data** — the wrong auth scheme was
+silently accepted because the code only looks at whatever comes after the
+first space, not what comes before it. My version explicitly checks
+`authHeader.startsWith("Bearer ")` before extracting anything, so the same
+request correctly returns 401. This is exactly the kind of gap the
+assignment's checkpoint ("incorrectly formatted... return 401") was
+designed to catch, and a prompt that doesn't spell out "reject anything
+that isn't literally the Bearer scheme" leaves room for it.
+
+**A security flaw it introduced — confirmed, not theoretical.** Neither
+`/auth/signup` nor `/auth/login` guards against a missing request body.
+My version does `const { title } = req.body || {}`-style destructuring
+everywhere; the AI's does `const { email, password } = req.body` directly.
+Sent a `POST /auth/signup` with no body at all, and it crashed: **500,
+with a full stack trace — including local file paths — dumped straight
+into the HTTP response.** That's not just a wrong status code, it's an
+information-disclosure bug: an attacker probing the API for free would
+learn the server's file layout and framework internals from an
+unauthenticated endpoint. The assignment explicitly calls for `400` on
+missing input; the AI's version fails open into a worse-than-nothing error
+page instead.
+
+**What my prompt missed.** I specified the response *shape* loosely —
+"the access token and refresh token" for login, without saying whether the
+`user` object should also come back, and "the user object" for signup
+without specifying whether it should be wrapped (`{ user: {...} }`) or
+returned bare. The AI took the literal minimum reading both times: login
+came back with only `access_token`/`refresh_token` (no `user`), and signup
+returned the raw Supabase user object with no wrapper. Neither is wrong
+given what I wrote, but it means a stricter contract (useful once a
+frontend depends on the exact shape) needs a more precise prompt than the
+one I gave from memory.
+
+**What the AI assumed.** It assumed a single shared Supabase client
+instance was fine for both routes and the middleware (same assumption I
+made) — so it inherited the same logout caveat documented above without
+me asking about it, which suggests that's a natural default for this kind
+of prompt rather than something either of us thought carefully about. It
+also assumed `supabase.auth.getUser(token)` returning no `error` always
+means a usable `user` — it doesn't guard `!data.user` separately the way
+mine does, though I didn't manage to actually trigger that path in
+testing, so I'm flagging it as a plausible gap rather than a confirmed one.
